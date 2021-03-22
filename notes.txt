@@ -1,0 +1,271 @@
+
+def compute_two_dimensional_matrices(n):
+    K, M, A = compute_one_dimensional_matrices(n)
+    
+    #D[iq] wqs[q] D[kq] B[jp] wqs[p] B[lp]
+    KM = np.einsum("ik, jl -> ijkl", K, M)
+    #B[iq] wqs[q] B[kq] D[jp] wqs[p] D[lp]
+    MK = np.einsum("ik, jl -> ijkl", M, K)
+    #B[iq] wqs[q] B[kq] B[jp] wqs[p] B[lp]
+    MM = np.einsum("ik, jl -> ijkl", M, M)
+    
+    nipts = n
+    ipts = np.polynomial.chebyshev.chebpts2(nipts)
+    
+    nqpts = n - 1
+    qpts, qws = np.polynomial.legendre.leggauss(nqpts)
+    
+    nqpts_err = 2 * nqpts
+    qpts_err, qws_err = np.polynomial.legendre.leggauss(nqpts_err)
+    
+    B = np.empty((nipts, nqpts), dtype=np.float64)
+    D = np.empty((nipts, nqpts), dtype=np.float64)
+    
+    iselect = np.zeros_like(ipts, dtype=np.float64)
+    for i in range(nipts):
+        iselect[i] = 1.0
+        ibasis = scipy.interpolate.lagrange(ipts, iselect)
+        iselect[i] = 0.0
+        
+        B[i, :] = ibasis(qpts)
+        D[i, :] = np.polyder(ibasis)(qpts)
+    
+    KM1 = np.einsum('iq, kq, q, p, jp, lp -> ijkl', D, D, qws, qws, B, B)
+    MK1 = np.einsum('iq, kq, q, p, jp, lp -> ijkl', B, B, qws, qws, D, D)
+    MM1 = np.einsum('iq, kq, q, p, jp, lp -> ijkl', B, B, qws, qws, B, B)
+    KK1 = KM1 + MK1
+    AA1 = KK1 + MM
+    
+    print(f"KM1 - KM {np.max(np.abs(KM1 - KM))}")
+    print(f"MK1 - MK {np.max(np.abs(MK1 - MK))}")
+    
+    KK = KM + MK
+    AA = KK + MM
+    
+    newshape = (n**2, n**2)
+    
+    #return KK.reshape(newshape), MM.reshape(newshape), AA.reshape(newshape)
+    return KK1.reshape(newshape), MM.reshape(newshape), AA1.reshape(newshape)
+
+compute_two_dimensional_matrices(10)
+
+def exact_two_d(x):
+    return np.cos(np.pi * x[0, :]) * np.cos(np.pi * x[1, :])
+    
+def rhs_two_d(x):
+    return exact_two_d(x) * (1 + 2 * np.pi**2)
+
+def compute_error_two_d_old(n, exact, rhs):
+    #nppts = 101
+    #ppts = numpy.linspace(-1, 1, nppts)
+    
+    nipts = n
+    ipts = np.polynomial.chebyshev.chebpts2(nipts)
+    
+    nqpts = n - 1
+    qpts, qws = np.polynomial.legendre.leggauss(nqpts)
+    
+    nqpts_err = 2 * nqpts
+    qpts_err, qws_err = np.polynomial.legendre.leggauss(nqpts_err)
+    
+    #KM = np.einsum('ik, jl -> ijkl', K, M)
+    
+    B = np.empty((nipts, nqpts), dtype=np.float64)
+    D = np.empty((nipts, nqpts), dtype=np.float64)
+    
+    #Bp = numpy.empty((nppts, nipts), dtype=np.float64)
+    #Dp = numpy.empty((nppts, nipts), dtype=np.float64)
+    
+    Be = np.empty((nqpts_err, nipts), dtype=np.float64)
+    
+    iselect = np.zeros_like(ipts, dtype=np.float64)
+    for i in range(nipts):
+        iselect[i] = 1.0
+        ibasis = scipy.interpolate.lagrange(ipts, iselect)
+        iselect[i] = 0.0
+        
+        B[i, :] = ibasis(qpts)
+        D[i, :] = np.polyder(ibasis)(qpts)
+        
+        #Bp[:, i] = ibasis(ppts)
+        #Dp[:, i] = numpy.polyder(ibasis)(ppts)
+        
+        Be[:, i] = ibasis(qpts_err)
+        
+        #for j in range(i+1):
+        #    BB[i * nipts + j, :] = np.prod(np.array(np.meshgrid(B[i, :], B[j, :]), dtype=np.float64), axis=1)
+    
+    #BB = np.empty((nipts**2, nqpts**2), dtype=np.float64)
+    #DD = np.empty((nipts**2, nqpts**2), dtype=np.float64)
+    
+    #KM = np.einsum('ik, jl -> ijkl', K, M)
+    BB = np.einsum("ik, jl -> ijkl", B, B)
+    BB = BB.reshape((nipts**2, nqpts**2))
+    
+    DD = np.einsum("ik, jl -> ijkl", D, D)
+    DD = DD.reshape((nipts**2, nqpts**2))
+    
+    BBe = np.einsum("ik, jl -> ijkl", Be, Be)
+    BBe = BBe.reshape((nqpts_err**2, nipts**2))
+    #print(f"BB.shape {BB.shape}")
+    """
+    #b0 = np.prod(np.array(np.meshgrid(B[0, :] * B[0, :]), dtype=np.float64), axis=1)
+    #b1 = np.prod(np.array(np.meshgrid( B[0, :] * B[1, :]), dtype=np.float64), axis=1)
+    b00 = np.array(np.meshgrid(B[0, :], B[0, :]), dtype=np.float64)
+    print(f"b00.shape {b00.shape}")
+    b00 = np.prod(b00, axis=0)
+    print(f"b00.shape {b00.shape}")
+    b00 = b00.reshape((nqpts**2))
+    b01 = np.array(np.meshgrid(B[0, :], B[1, :]), dtype=np.float64)
+    print(f"b01.shape {b01.shape}")
+    b01 = np.prod(b01, axis=0)
+    print(f"b01.shape {b01.shape}")
+    b01 = b01.reshape((nqpts**2))
+    
+    #print(f"b00.shape {b00.shape};\n{b00}")
+    #print(f"b01.shape {b01.shape};\n{b01}")
+    
+    print(f"BB[0, :] == B[0, :] X B[0, :] {BB[0, :] == b00}")
+    print(f"BB[1, :] == B[0, :] X B[1, :] {BB[1, :] == b01}")
+    return
+    """
+    ipts2d = np.array(np.meshgrid(ipts, ipts), dtype=np.float64)
+    ipts2d = ipts2d.reshape((2, nipts**2))
+    
+    #K comes from derivatives, M from the plain basis
+    KK, MM, AA = compute_two_dimensional_matrices(n)
+    
+    qpts2d = np.array(np.meshgrid(qpts, qpts), dtype=np.float64)
+    print(f"qpts2d.shape {qpts2d.shape}")
+    print(f"qpts2d[:, :4, :4] {qpts2d[:, :4, :4]}")
+    qpts2d = qpts2d.reshape((2, nqpts**2))
+    print(f"qpts2d.shape {qpts2d.shape}")
+    print(f"qpts2d[:, 0:10] {qpts2d[:, 0:4]}")
+    #qws2d = np.prod(np.array(np.meshgrid(qws, qws), dtype=np.float64), axis=0)
+    qws2d = np.einsum("i, j -> ij", qws, qws)
+    qws2d = qws2d.reshape((nqpts**2))
+    print(f"qws2d.shape {qws2d.shape}")
+    
+    #uu = rhs_two_d(ipts2d)
+    #plt.matshow(uu.reshape((n, n)))
+    #uu = rhs_two_d(qpts2d)
+    #plt.matshow(uu.reshape((nqpts, nqpts)))
+    
+    FF = BB @ (rhs_two_d(qpts2d) * qws2d)
+    
+    uu = scipy.linalg.solve(AA, FF)
+    
+    print(f"uu.shape {uu.shape}")
+    plt.matshow(uu.reshape((n, n)))
+    #_ = plt.plot(ipts, 0 * ipts, 'ro')
+    #_ = plt.plot(ppts, Bp @ exact(ipts))
+    #_ = plt.plot(ipts, exact(ipts), "bo")
+    #_ = plt.plot(ppts, Bp @ u)
+    
+    #uda = np.sum(u * Dp[0, :])
+    #udb = np.sum(u * Dp[-1, :])
+    #print(f"u' on boundary: {uda} {udb}")
+    
+    #return np.sqrt(np.sum(((exact(qpts_err) - (Be @ u))**2) * qws_err))
+    
+    qpts_err2d = np.array(np.meshgrid(qpts_err, qpts_err), dtype=np.float64)
+    qpts_err2d = qpts_err2d.reshape((2, nqpts_err**2))
+    qws_err2d = np.prod(np.meshgrid(qws_err, qws_err), axis=0)
+    qws_err2d = qws_err2d.reshape((nqpts_err**2))
+    
+    return np.sqrt(np.sum(((exact(qpts_err2d) - (BBe @ uu))**2) * qws_err2d))
+
+def compute_error_two_d(n, exact, rhs):
+    nipts = n
+    ipts = np.polynomial.chebyshev.chebpts2(nipts)
+    
+    nqpts = n - 1
+    qpts, qws = np.polynomial.legendre.leggauss(nqpts)
+    
+    nqpts_err = 2 * nqpts
+    qpts_err, qws_err = np.polynomial.legendre.leggauss(nqpts_err)
+    
+    #KM = np.einsum('ik, jl -> ijkl', K, M)
+    
+    B = np.empty((nipts, nqpts), dtype=np.float64)
+    D = np.empty((nipts, nqpts), dtype=np.float64)
+    
+    Be = np.empty((nqpts_err, nipts), dtype=np.float64)
+    
+    iselect = np.zeros_like(ipts, dtype=np.float64)
+    for i in range(nipts):
+        iselect[i] = 1.0
+        ibasis = scipy.interpolate.lagrange(ipts, iselect)
+        iselect[i] = 0.0
+        
+        B[i, :] = ibasis(qpts)
+        D[i, :] = np.polyder(ibasis)(qpts)
+        
+        Be[:, i] = ibasis(qpts_err)
+        
+    #KM = np.einsum('ik, jl -> ijkl', K, M)
+    BB = np.einsum("ik, jl -> ijkl", B, B)
+    BB = BB.reshape((nipts**2, nqpts**2))
+    
+    DD = np.einsum("ik, jl -> ijkl", D, D)
+    DD = DD.reshape((nipts**2, nqpts**2))
+    
+    BBe = np.einsum("ik, jl -> ijkl", Be, Be)
+    BBe = BBe.reshape((nqpts_err**2, nipts**2))
+    
+    F = B @ (rhs_one_d(qpts) * qws)
+    #f = rhs_one_d(qpts)
+    KM = np.einsum('iq, jp, q, p, kq, lp -> ijkl', D, B, qws, qws, D, B)
+    MK = np.einsum('iq, jp, q, p, kq, lp -> ijkl', B, D, qws, qws, D, B)
+    KK2 = KM + MK
+    KK2 = KK2.reshape((n**2, n**2))
+    
+    ipts2d = np.array(np.meshgrid(ipts, ipts), dtype=np.float64)
+    ipts2d = ipts2d.reshape((2, nipts**2))
+    
+    #K comes from derivatives, M from the plain basis
+    KK, MM, AA = compute_two_dimensional_matrices(n)
+    print(f"KK == KK2 {np.array_equal(KK, KK2)}")
+    
+    qpts2d = np.array(np.meshgrid(qpts, qpts), dtype=np.float64)
+    qpts2d = qpts2d.reshape((2, nqpts**2))
+    
+    qws2d = np.einsum("i, j -> ij", qws, qws)
+    qws2d = qws2d.reshape((nqpts**2))
+    
+    #FF = BB @ (rhs_two_d(qpts2d) * qws2d)
+    #F = B @ (rhs_one_d(qpts) * qws)
+    f = rhs_one_d(qpts)
+    ff = rhs_two_d(qpts2d)
+    print(f"ff.shape {ff.shape}")
+    ff = ff.reshape((nqpts, nqpts))
+    plt.matshow(ff.reshape((nqpts, nqpts)))
+    return 0
+    
+    F = np.einsum('iq, q, q -> i', B, f, qws)
+    #FF = np.einsum('iq, q, q, jq-> ij', B, f, qws, qws, f, B)
+    #FF = np.einsum('ip, pq, jq-> ij', B, ff, B)
+    FF = np.einsum('iq, q, qp, p, jp-> ij', B, qws, ff, qws, B)
+    FF = FF.reshape((n**2))
+    plt.matshow(FF)
+    
+    uu = scipy.linalg.solve(AA, FF)
+    
+    print(f"uu.shape {uu.shape}")
+    plt.matshow(uu.reshape((n, n)))
+    
+    qpts_err2d = np.array(np.meshgrid(qpts_err, qpts_err), dtype=np.float64)
+    qpts_err2d = qpts_err2d.reshape((2, nqpts_err**2))
+    
+    qws_err2d = np.prod(np.meshgrid(qws_err, qws_err), axis=0)
+    qws_err2d = qws_err2d.reshape((nqpts_err**2))
+    
+    return np.sqrt(np.sum(((exact(qpts_err2d) - (BBe @ uu))**2) * qws_err2d))
+
+error = []
+all_n = range(10, 32)
+for n in all_n:
+    error.append(compute_error_two_d(n, exact_two_d, rhs_two_d))
+    print(f"{error[-1]}")
+    break
+#plt.loglog(all_n, error, 'o-')
